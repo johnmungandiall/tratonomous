@@ -2,367 +2,104 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Overview
+## What This Is
 
-OpenAlgo is a production-ready algorithmic trading platform built with Flask (backend) and React 19 (frontend). It provides a unified API layer across 24+ Indian brokers, enabling seamless integration with TradingView, Amibroker, Excel, Python, and AI agents.
+OpenAlgo — an open-source algorithmic trading platform that provides a unified REST API layer across 30+ Indian stock brokers. Python Flask backend with a React (Vite + TypeScript) frontend. Uses SQLite databases, ZeroMQ for internal messaging, and WebSockets for real-time market data streaming.
 
-**Repository**: https://github.com/marketcalls/openalgo
-**Documentation**: https://docs.openalgo.in
+## Commands
 
-## Development Environment Setup
-
-### Prerequisites
-- Python 3.12+ (required per pyproject.toml)
-- Node.js 20/22/24 for React frontend development
-- **uv package manager (required)** - Never use global Python
-
-### Initial Setup
+### Backend
 
 ```bash
-# Install uv package manager (required)
-pip install uv
+# Install dependencies (uses uv, not pip)
+uv sync            # production deps
+uv sync --dev      # includes ruff, bandit, detect-secrets, pip-audit
 
-# Configure environment
-cp .sample.env .env
+# Run the app (starts Flask + WebSocket proxy on ports 5000 and 8765)
+python app.py
 
-# Generate new APP_KEY and API_KEY_PEPPER:
-uv run python -c "import secrets; print(secrets.token_hex(32))"
+# Lint
+uv run ruff check .
+uv run ruff check --fix .
+uv run ruff format .
 
-# Build React frontend (required - not tracked in git)
-cd frontend && npm install && npm run build && cd ..
+# Tests (CI-safe subset — most tests need broker credentials)
+uv run pytest test/test_log_location.py test/test_navigation_update.py \
+  test/test_python_editor.py test/test_rate_limits_simple.py \
+  test/test_logout_csrf.py -v --timeout=60
 
-# Run application (uv automatically handles virtual env and dependencies)
-uv run app.py
+# Run a single test file
+uv run pytest test/test_rate_limits_simple.py -v
+
+# Security scanning
+uv run bandit -r . -x ./.venv,./frontend,./node_modules
+uv run detect-secrets scan --baseline .secrets.baseline
+uv run pip-audit
 ```
 
-### Important: Always Use UV
-
-**Never use global Python or manually manage virtual environments.** Always prefix Python commands with `uv run`:
+### Frontend (from `frontend/` directory)
 
 ```bash
-# Running the app
-uv run app.py
-
-# Running any Python script
-uv run python script.py
-
-# Installing a new package (adds to pyproject.toml)
-uv add package_name
-
-# Syncing dependencies after pulling changes
-uv sync
+npm ci              # install
+npm run dev         # dev server (Vite)
+npm run build       # tsc + vite build → frontend/dist/
+npm run lint        # Biome lint
+npm run format      # Biome format
+npm run check       # Biome lint + format (auto-fix)
+npm run test:run    # Vitest (single run)
+npm run test:coverage
+npm run e2e         # Playwright E2E tests
 ```
 
-### React Frontend Development
+### Pre-commit hooks
 
-```bash
-cd frontend
+Ruff (lint + format), Biome (frontend), detect-secrets, trailing whitespace, YAML/JSON checks. Run `pre-commit install` to set up.
 
-# Install dependencies
-npm install
+## Architecture
 
-# Development server (hot reload)
-npm run dev
+### Request Flow
 
-# Production build
-npm run build
+`Client → Flask route (blueprints/) or REST API (restx_api/) → service layer (services/) → broker adapter (broker/<name>/api/) → external broker API`
 
-# Run tests
-npm test
+### Key Layers
 
-# Run end-to-end tests
-npm run e2e
+- **`app.py`** — Flask app factory (`create_app()`), blueprint registration, background DB init, cache restoration, WebSocket proxy startup. Entry point: `python app.py`.
+- **`blueprints/`** — Flask blueprints for web UI routes (auth, dashboard, orders, settings, etc.). Each blueprint handles a page or feature area.
+- **`restx_api/`** — Flask-RESTX API namespaces mounted at `/api/v1/`. Each file = one endpoint (placeorder, quotes, history, etc.). Uses API key auth, CSRF-exempt.
+- **`services/`** — Business logic layer. Each service corresponds to a restx_api endpoint or blueprint feature. Services call into broker adapters.
+- **`broker/<name>/`** — Plugin-based broker integrations. Each broker has:
+  - `plugin.json` — metadata (supported exchanges, broker type, leverage config)
+  - `api/` — `auth_api.py`, `order_api.py`, `data.py`, `funds.py`, `margin_api.py`
+  - `mapping/` — `order_data.py`, `transform_data.py`, `margin_data.py`
+  - `database/` — `master_contract_db.py` (symbol downloads)
+  - `streaming/` — WebSocket adapter for real-time market data
+- **`database/`** — SQLAlchemy-based DB modules. Each `*_db.py` owns its own scoped session and table definitions. Multiple SQLite databases: main (`openalgo.db`), latency, logs, sandbox. DuckDB for historical data (`historify.duckdb`).
+- **`events/`** + **`subscribers/`** — In-process EventBus (pub/sub). Order events are published by services and consumed by three subscribers: `log_subscriber`, `socketio_subscriber`, `telegram_subscriber`. Events: `order.placed`, `order.failed`, `order.modified`, `order.cancelled`, `position.closed`, `basket.completed`, etc.
+- **`websocket_proxy/`** — Standalone WebSocket server (port 8765) that bridges broker-specific streaming APIs into a unified WebSocket interface. Uses ZeroMQ internally. Runs in-process locally, separately in Docker.
+- **`sandbox/`** — Analyzer mode: paper trading engine with virtual capital. Execution engine, position/order/fund managers, square-off scheduler.
+- **`frontend/`** — React 19 + TypeScript + Vite + Tailwind CSS 4. Uses Radix UI, React Router, Zustand for state, TanStack Query for data fetching, Socket.IO client for real-time updates. Built output served by Flask from `frontend/dist/`.
+- **`utils/`** — Shared utilities: logging, auth, config, security middleware, traffic logging, health monitoring, ngrok, event bus.
 
-# Linting and formatting
-npm run lint
-npm run format
-```
+### Broker Plugin System
 
-## Application Architecture
-
-### Frontend
-
-**React 19 Frontend** (`/frontend/`): Modern SPA with TypeScript, Vite, shadcn/ui, TanStack Query. Built and served from `/frontend/dist/` by Flask via `blueprints/react_app.py`.
-
-### Backend Structure
-
-- `app.py` - Main Flask application entry point
-- `blueprints/` - Flask route handlers (UI and webhooks)
-- `restx_api/` - REST API endpoints (`/api/v1/`)
-- `broker/` - Broker integrations (24+ brokers), each with `api/`, `database/`, `mapping/`, `streaming/`, `plugin.json`
-- `services/` - Business logic layer
-- `database/` - SQLAlchemy models and database utilities
-- `utils/` - Shared utilities and helpers
-- `websocket_proxy/` - Unified WebSocket server (port 8765)
+Brokers are loaded dynamically via `utils/plugin_loader.py`. At startup, `plugin.json` files are read for capabilities. Actual broker modules are imported lazily at login time. The `VALID_BROKERS` env var controls which brokers are available. All brokers implement the same API interface (`order_api.py`, `data.py`, etc.), making them interchangeable.
 
 ### Database Architecture
 
-OpenAlgo uses **5 separate databases** for isolation:
+Multiple isolated SQLite databases (configured via env vars `DATABASE_URL`, `LATENCY_DATABASE_URL`, `LOGS_DATABASE_URL`, `SANDBOX_DATABASE_URL`). Each `database/*_db.py` module creates its own engine and scoped session. Tables are initialized in parallel at startup via `ThreadPoolExecutor`. Session cleanup happens in `app.teardown_appcontext`.
 
-- `db/openalgo.db` - Main database (users, orders, positions, settings)
-- `db/logs.db` - Traffic and API logs
-- `db/latency.db` - Latency monitoring data
-- `db/sandbox.db` - Analyzer/sandbox mode (isolated virtual trading)
-- `db/historify.duckdb` - Historical market data (DuckDB)
+### Real-Time Data
 
-Each database has its own initialization function in `/database/`.
+ZeroMQ pub/sub bus distributes market data internally. The WebSocket proxy (`websocket_proxy/server.py`) authenticates clients via API key, creates broker-specific streaming adapters, and forwards normalized LTP/Quote/Depth data over WebSocket.
 
-### Broker Integration Pattern
+## Configuration
 
-All 24+ brokers follow a standardized structure in `broker/{broker_name}/`:
+All config is via `.env` (copy `.sample.env`). Key variables: `BROKER_API_KEY`, `BROKER_API_SECRET`, `DATABASE_URL`, `APP_KEY`, `API_KEY_PEPPER`, `FLASK_HOST_IP`, `FLASK_PORT`, `WEBSOCKET_PORT`, `HOST_SERVER`, `VALID_BROKERS`.
 
-1. `api/auth_api.py` - OAuth2 or API key based authentication
-2. `api/order_api.py` - Place, modify, cancel orders
-3. `api/data.py` - Quotes, depth, historical data
-4. `api/funds.py` - Account balance and margins
-5. `mapping/` - Transform OpenAlgo format ↔ broker format
-6. `streaming/` - WebSocket adapter for real-time data
-7. `database/master_contract_db.py` - Symbol mapping
-8. `plugin.json` - Broker metadata
+## Tooling
 
-Reference implementations: `/broker/zerodha/`, `/broker/dhan/`, `/broker/angel/`
-
-### WebSocket Architecture
-
-- **Unified Proxy Server**: `websocket_proxy/server.py` (port 8765)
-- **ZeroMQ Message Bus**: High-performance data distribution (port 5555)
-- **Broker Adapters**: Normalize broker-specific WebSocket data
-- **Connection Pooling**: `MAX_SYMBOLS_PER_WEBSOCKET` (default: 1000) × `MAX_WEBSOCKET_CONNECTIONS` (default: 3) = 3000 symbols
-
-## Common Development Tasks
-
-### Running the Application
-
-```bash
-# Development mode (auto-reloads on code changes)
-uv run app.py
-
-# Production mode with Gunicorn (Linux only)
-uv run gunicorn --worker-class eventlet -w 1 app:app
-
-# IMPORTANT: Use -w 1 (one worker) for WebSocket compatibility
-```
-
-Access points:
-- Main app: http://127.0.0.1:5000
-- API docs: http://127.0.0.1:5000/api/docs
-- React frontend: http://127.0.0.1:5000/react
-
-### Testing
-
-```bash
-# Run all tests
-uv run pytest test/ -v
-
-# Run specific test file
-uv run pytest test/test_broker.py -v
-
-# Run single test function
-uv run pytest test/test_broker.py::test_function_name -v
-
-# Run tests with coverage
-uv run pytest test/ --cov
-
-# React frontend tests
-cd frontend
-npm test                    # Run all tests
-npm run test:coverage      # With coverage
-npm run e2e                # End-to-end tests
-```
-
-Most testing is currently manual via:
-- Web UI: http://127.0.0.1:5000
-- Swagger API: http://127.0.0.1:5000/api/docs
-- API Analyzer: http://127.0.0.1:5000/analyzer
-
-### Building for Production
-
-```bash
-# Build React frontend
-cd frontend
-npm run build
-
-# The React build artifacts go to frontend/dist/
-# These are served by Flask via blueprints/react_app.py
-```
-
-### Important: Frontend Build (CI/CD)
-
-**`frontend/dist/` is NOT tracked in git.** The CI/CD pipeline builds it automatically on each push.
-
-For local development after cloning:
-```bash
-cd frontend
-npm install
-npm run build
-```
-
-This is required before running the application locally. The build artifacts are gitignored to:
-- Prevent merge conflicts on hash-named files
-- Keep the repository size smaller
-- Ensure fresh builds via CI/CD
-
-## Key Architectural Concepts
-
-### Plugin System for Brokers
-
-Brokers are dynamically loaded from `broker/*/plugin.json`. The plugin loader (`utils/plugin_loader.py`) discovers and loads broker modules at runtime. To add a new broker:
-
-1. Create directory: `broker/new_broker/`
-2. Implement required modules: `api/`, `mapping/`, `database/`, `streaming/`
-3. Add `plugin.json` with metadata
-4. Add broker to `VALID_BROKERS` in `.env`
-
-### REST API Layer (Flask-RESTX)
-
-The `/api/v1/` endpoints are defined in `restx_api/`:
-- Automatic Swagger documentation at `/api/docs`
-- Uses Flask-RESTX for request/response validation
-- All endpoints require API key authentication
-- Rate limiting configured per endpoint type
-
-### Action Center (Order Approval System)
-
-Orders can flow through two modes:
-- **Auto Mode**: Direct execution (personal trading)
-- **Semi-Auto Mode**: Manual approval required (managed accounts)
-
-Approval workflow in `database/action_center_db.py` and `services/action_center_service.py`
-
-### Analyzer Mode (Paper Trading)
-
-Separate database (`sandbox.db`) with ₹1 Crore virtual capital:
-- Realistic margin system with leverage
-- Auto square-off at exchange timings
-- Complete isolation from live trading
-- Toggle via `/analyzer` blueprint
-
-### Real-Time Communication
-
-1. **Flask-SocketIO**: Real-time updates for orders, trades, positions, logs
-2. **WebSocket Proxy**: Unified market data streaming (port 8765)
-3. **ZeroMQ**: High-performance message bus for internal communication
-
-## Important Configuration
-
-### Environment Variables (.env)
-
-Critical variables to configure:
-- `APP_KEY`: Flask secret key (generate with secrets.token_hex(32))
-- `API_KEY_PEPPER`: Encryption pepper (generate with secrets.token_hex(32))
-- `BROKER_API_KEY` / `BROKER_API_SECRET`: Broker credentials
-- `VALID_BROKERS`: Comma-separated list of enabled brokers
-- `DATABASE_URL`: Main database path
-- `WEBSOCKET_HOST` / `WEBSOCKET_PORT`: WebSocket server config
-- `MAX_SYMBOLS_PER_WEBSOCKET`: Symbol limit per connection
-- `FLASK_DEBUG`: Enable debug mode (development only)
-
-## Code Style and Conventions
-
-### Python
-- Follow PEP 8 style guide
-- Use 4 spaces for indentation
-- Use Google-style docstrings
-- Imports: Standard library → Third-party → Local
-
-### React/TypeScript
-- Follow Biome.js linting rules (`frontend/biome.json`)
-- Use functional components with hooks
-- Component files use PascalCase: `MyComponent.tsx`
-
-### Git Commit Messages (Conventional Commits)
-- `feat:` New features
-- `fix:` Bug fixes
-- `docs:` Documentation changes
-- `refactor:` Code refactoring
-
-## Common Patterns and Utilities
-
-### API Authentication
-
-All `/api/v1/` endpoints require API key:
-```python
-# In request body (recommended):
-{"apikey": "YOUR_API_KEY", "symbol": "SBIN", ...}
-
-# Or in headers:
-X-API-KEY: YOUR_API_KEY
-```
-
-API keys are generated at `/apikey` and hashed with pepper before storage.
-
-### Symbol Format
-
-OpenAlgo uses standardized symbol format across all brokers:
-```
-NSE:SBIN-EQ          # Equity
-NFO:NIFTY24JAN24000CE  # Options
-NSE:NIFTY-INDEX      # Index
-```
-
-Broker-specific symbols are mapped via `broker/*/mapping/` modules.
-
-### Database Queries
-
-Always use SQLAlchemy ORM (never raw SQL):
-```python
-from database.auth_db import User
-
-# Good
-user = User.query.filter_by(username='admin').first()
-```
-
-### Error Handling
-
-Return consistent JSON responses:
-```python
-return {
-    'status': 'success' | 'error',
-    'message': 'Human-readable message',
-    'data': {...}  # Optional payload
-}
-```
-
-### React API Calls
-
-Use TanStack Query for server state:
-```typescript
-import { useQuery } from '@tanstack/react-query';
-
-const { data, isLoading, error } = useQuery({
-  queryKey: ['positions'],
-  queryFn: () => api.getPositions()
-});
-```
-
-## Troubleshooting Common Issues
-
-### WebSocket Connection Issues
-1. Ensure WebSocket server is running (starts with app.py)
-2. Check `WEBSOCKET_HOST` and `WEBSOCKET_PORT` in `.env`
-3. For Gunicorn: Use `-w 1` (single worker only)
-4. Check firewall settings for port 8765
-
-### Database Locked Errors
-1. SQLite doesn't handle high concurrency well
-2. Close all connections and restart app
-3. For production, consider PostgreSQL
-
-### Broker Integration Not Loading
-1. Check broker name in `VALID_BROKERS` (.env)
-2. Verify `plugin.json` exists in broker directory
-3. Check broker module structure matches pattern
-4. Restart application to reload plugins
-
-### React Frontend Build Errors
-1. Ensure Node.js version matches `frontend/package.json` engines
-2. Delete `frontend/node_modules` and run `npm install`
-3. Check for TypeScript errors: `npm run build`
-
-## Claude Code Instructions
-
-### Frontend Build Process
-When building the React frontend locally:
-- Run `cd frontend && npm run build` (build only, no tests)
-- Tests are handled by CI/CD pipeline, not required for local builds
-- The `frontend/dist/` directory is gitignored and built by GitHub Actions
+- **Python**: 3.12+ required. Uses `uv` for dependency management (`pyproject.toml` + `uv.lock`).
+- **Linting**: Ruff (backend), Biome (frontend). Config in `pyproject.toml` and `frontend/biome.json`.
+- **Testing**: pytest (backend), Vitest (frontend unit), Playwright (frontend E2E).
+- **CI**: GitHub Actions — backend lint/test, frontend lint/build/test/e2e, security scan (bandit, pip-audit, detect-secrets).
+- **Docker**: `Dockerfile` + `docker-compose.yaml`. In Docker, WebSocket server runs as a separate process via `start.sh`.
