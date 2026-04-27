@@ -103,3 +103,30 @@ All config is via `.env` (copy `.sample.env`). Key variables: `BROKER_API_KEY`, 
 - **Testing**: pytest (backend), Vitest (frontend unit), Playwright (frontend E2E).
 - **CI**: GitHub Actions — backend lint/test, frontend lint/build/test/e2e, security scan (bandit, pip-audit, detect-secrets).
 - **Docker**: `Dockerfile` + `docker-compose.yaml`. In Docker, WebSocket server runs as a separate process via `start.sh`.
+
+## Autonomous Agent System
+
+This project uses an autonomous multi-agent system. Everything is project-level.
+
+### Strict Rules
+- ALL agents, skills, commands, and outputs MUST live inside this project's `.claude/` folder
+- Agents must NEVER run `git commit`, `git push`, or `git add` unless the user explicitly asks
+- NEVER create agents, skills, or commands in `~/.claude/` (global) or `/tmp/` — always project-level
+- Before starting complex or multi-step tasks, check `.claude/agents/AGENTS.md` for available agents
+- When a task benefits from parallel work or multiple roles (research, build, review, test), use the `autonomous` skill to orchestrate agents
+- Always update `.claude/agents/AGENTS.md` and `.claude/agents/README.md` after agent work
+- Agent outputs go in `.claude/agent-output/<agent-name>/`
+- After orchestration runs, improve agent definitions based on what worked and what didn't
+- Check `.claude/skills/autonomous-improvements/IMPROVEMENTS.md` for past learnings before creating new agents
+- After every orchestration run, append a summary row to `WORK-SUMMARY.md` in the project root
+- Use project commands (`.claude/commands/`) to interact with the agent system
+
+### Project Structure
+- Work summary: `WORK-SUMMARY.md` (project root)
+- Agent registry: `.claude/agents/AGENTS.md`
+- Agent usage guide: `.claude/agents/README.md`
+- Agent definitions: `.claude/agents/<name>.md`
+- Agent outputs: `.claude/agent-output/<agent-name>/`
+- Skills (created by agents): `.claude/skills/<name>/SKILL.md`
+- Commands: `.claude/commands/<name>.md`
+- Improvement log: `.claude/skills/autonomous-improvements/IMPROVEMENTS.md`
