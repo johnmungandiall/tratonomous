@@ -85,6 +85,7 @@ def get_margin_data(auth_token):
 
         headers = {
             "accept": "application/json",
+            "Authorization": access_token,
             "Sid": trading_sid,
             "Auth": trading_token,
             "neo-fin-key": "neotradeapi",

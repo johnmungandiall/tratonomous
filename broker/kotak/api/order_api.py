@@ -36,6 +36,7 @@ def get_api_response(endpoint, auth_token, method="GET", payload=""):
 
     headers = {
         "accept": "application/json",
+        "Authorization": access_token,
         "Sid": session_sid,
         "Auth": session_token,
         "neo-fin-key": "neotradeapi",
@@ -155,6 +156,7 @@ def place_order_api(data, auth_token):
 
     headers = {
         "accept": "application/json",
+        "Authorization": access_token,
         "Sid": session_sid,
         "Auth": session_token,
         "neo-fin-key": "neotradeapi",
@@ -343,6 +345,7 @@ def cancel_order(orderid, auth_token):
 
     headers = {
         "accept": "application/json",
+        "Authorization": access_token,
         "Sid": session_sid,
         "Auth": session_token,
         "neo-fin-key": "neotradeapi",
@@ -388,6 +391,7 @@ def modify_order(data, auth_token):
 
     headers = {
         "accept": "application/json",
+        "Authorization": access_token,
         "Sid": session_sid,
         "Auth": session_token,
         "neo-fin-key": "neotradeapi",

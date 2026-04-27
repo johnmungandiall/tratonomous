@@ -35,6 +35,7 @@ def calculate_single_margin(position_data, auth_token):
     # Prepare headers
     headers = {
         "accept": "application/json",
+        "Authorization": access_token,
         "Sid": session_sid,
         "Auth": session_token,
         "neo-fin-key": "neotradeapi",
