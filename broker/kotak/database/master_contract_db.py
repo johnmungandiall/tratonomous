@@ -435,18 +435,23 @@ def get_kotak_master_filepaths():
                 "Authentication token not found. Please log in again to refresh your session."
             )
 
-        # Updated for Neo API v2: trading_token:::trading_sid:::base_url:::access_token
+        # Updated for Neo API v2: trading_token:::trading_sid:::base_url:::bearer_token:::server_id
         try:
-            trading_token, trading_sid, base_url, access_token = auth_token.split(":::")
-        except ValueError as e:
+            parts = auth_token.split(":::")
+            trading_token = parts[0]
+            trading_sid = parts[1]
+            base_url = parts[2]
+            bearer_token = parts[3]
+            server_id = parts[4] if len(parts) > 4 else ""
+        except (ValueError, IndexError) as e:
             logger.error(f"Invalid auth token format: {e}")
             raise Exception(
                 "Invalid authentication token format. Please log out and log in again."
             )
 
-        if not access_token:
-            logger.error("Access token is empty")
-            raise Exception("Access token is missing. Please re-authenticate.")
+        if not bearer_token:
+            logger.error("Bearer token is empty")
+            raise Exception("Bearer token is missing. Please re-authenticate.")
 
         # Use the baseUrl from auth token first, then try alternatives
         # Sometimes scripmaster API is on different servers
@@ -467,8 +472,13 @@ def get_kotak_master_filepaths():
 
                 endpoint = "/script-details/1.0/masterscrip/file-paths"
 
-                # According to Neo API v2 docs and PowerShell test: use only Authorization header
-                headers = {"Authorization": access_token, "Content-Type": "application/json"}
+                headers = {
+                    "Authorization": f"Bearer {bearer_token}",
+                    "Sid": trading_sid,
+                    "Auth": trading_token,
+                    "neo-fin-key": "neotradeapi",
+                    "Content-Type": "application/json",
+                }
 
                 # Construct full URL
                 url = f"{base_url_attempt}{endpoint}"

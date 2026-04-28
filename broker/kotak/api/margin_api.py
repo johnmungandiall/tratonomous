@@ -24,7 +24,7 @@ def calculate_single_margin(position_data, auth_token):
         Tuple of (response, parsed_response_data)
     """
     # Parse auth token
-    session_token, session_sid, base_url, access_token = auth_token.split(":::")
+    session_token, session_sid, base_url, bearer_token, server_id = auth_token.split(":::")
 
     # Debug logging for baseUrl
     logger.debug(f"MARGIN API - Using baseUrl: {base_url}")
@@ -35,7 +35,7 @@ def calculate_single_margin(position_data, auth_token):
     # Prepare headers
     headers = {
         "accept": "application/json",
-        "Authorization": access_token,
+        "Authorization": f"Bearer {bearer_token}",
         "Sid": session_sid,
         "Auth": session_token,
         "neo-fin-key": "neotradeapi",
@@ -48,8 +48,8 @@ def calculate_single_margin(position_data, auth_token):
 
     logger.debug(f"Kotak margin calculation payload: {payload}")
 
-    # Construct full URL
-    url = f"{base_url}/quick/user/check-margin"
+    # Construct full URL with sId query parameter
+    url = f"{base_url}/quick/user/check-margin?sId={server_id}"
 
     try:
         # Make the request

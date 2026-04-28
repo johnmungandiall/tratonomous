@@ -67,13 +67,16 @@ class KotakWebSocketAdapter(BaseBrokerWebSocketAdapter):
             raise ValueError(f"No authentication token found for user {user_id}")
 
         auth_parts = auth_string.split(":::")
-        if len(auth_parts) != 4:
+        if len(auth_parts) < 5:
             logger.error("Invalid authentication token format")
             raise ValueError("Invalid authentication token format")
 
-        self._auth_config = dict(
-            zip(["auth_token", "sid", "hs_server_id", "access_token"], auth_parts)
-        )
+        self._auth_config = {
+            "auth_token": auth_parts[0],
+            "sid": auth_parts[1],
+            "hs_server_id": auth_parts[4],
+            "access_token": auth_parts[3],
+        }
 
         # Create websocket client
         self._ws_client = KotakWebSocket(self._auth_config)
@@ -656,17 +659,17 @@ class KotakWebSocketAdapter(BaseBrokerWebSocketAdapter):
                 return
 
             auth_parts = auth_string.split(":::")
-            if len(auth_parts) != 4:
+            if len(auth_parts) < 5:
                 logger.error("Invalid authentication token format during reconnection")
                 self._ws_client = None
                 return
 
-            self._auth_config = dict(
-                zip(
-                    ["auth_token", "sid", "hs_server_id", "access_token"],
-                    auth_parts,
-                )
-            )
+            self._auth_config = {
+                "auth_token": auth_parts[0],
+                "sid": auth_parts[1],
+                "hs_server_id": auth_parts[4],
+                "access_token": auth_parts[3],
+            }
 
             # Create new WebSocket client
             self._ws_client = KotakWebSocket(self._auth_config)

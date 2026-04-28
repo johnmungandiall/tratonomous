@@ -14,9 +14,12 @@ logger = get_logger(__name__)
 
 class BrokerData:
     def __init__(self, auth_token):
-        self.session_token, self.session_sid, self.base_url, self.access_token = auth_token.split(
-            ":::"
-        )
+        parts = auth_token.split(":::")
+        self.session_token = parts[0]
+        self.session_sid = parts[1]
+        self.base_url = parts[2]
+        self.bearer_token = parts[3]
+        self.server_id = parts[4] if len(parts) > 4 else ""
 
         if not self.base_url or not self.base_url.startswith("http"):
             raise ValueError(
@@ -63,7 +66,7 @@ class BrokerData:
         endpoint = f"/script-details/1.0/quotes/neosymbol/{encoded_query}/{filter_name}"
 
         headers = {
-            "Authorization": self.access_token,
+            "Authorization": f"Bearer {self.bearer_token}",
             "Sid": self.session_sid,
             "Auth": self.session_token,
             "neo-fin-key": "neotradeapi",

@@ -26,7 +26,7 @@ def get_api_response(endpoint, auth_token, method="GET", payload=""):
     """
     Updated for Kotak Neo API v2 - uses dynamic baseUrl, httpx connection pooling, and new header structure
     """
-    session_token, session_sid, base_url, access_token = auth_token.split(":::")
+    session_token, session_sid, base_url, bearer_token, server_id = auth_token.split(":::")
 
     # Debug logging for baseUrl
     logger.info(f"ORDER API - Using baseUrl: {base_url}")
@@ -36,14 +36,14 @@ def get_api_response(endpoint, auth_token, method="GET", payload=""):
 
     headers = {
         "accept": "application/json",
-        "Authorization": access_token,
+        "Authorization": f"Bearer {bearer_token}",
         "Sid": session_sid,
         "Auth": session_token,
         "neo-fin-key": "neotradeapi",
     }
 
-    # Construct full URL
-    url = f"{base_url}{endpoint}"
+    # Construct full URL with sId query parameter
+    url = f"{base_url}{endpoint}?sId={server_id}"
 
     # Make request using httpx
     response = client.request(method, url, headers=headers, content=payload if payload else None)
@@ -140,7 +140,7 @@ def get_open_position(tradingsymbol, exchange, producttype, auth_token):
 
 
 def place_order_api(data, auth_token):
-    session_token, session_sid, base_url, access_token = auth_token.split(":::")
+    session_token, session_sid, base_url, bearer_token, server_id = auth_token.split(":::")
 
     # Debug logging for baseUrl
     logger.info(f"PLACE ORDER API - Using baseUrl: {base_url}")
@@ -156,15 +156,15 @@ def place_order_api(data, auth_token):
 
     headers = {
         "accept": "application/json",
-        "Authorization": access_token,
+        "Authorization": f"Bearer {bearer_token}",
         "Sid": session_sid,
         "Auth": session_token,
         "neo-fin-key": "neotradeapi",
         "Content-Type": "application/x-www-form-urlencoded",
     }
 
-    # Construct full URL
-    url = f"{base_url}/quick/order/rule/ms/place"
+    # Construct full URL with sId query parameter
+    url = f"{base_url}/quick/order/rule/ms/place?sId={server_id}"
 
     try:
         response = client.post(url, headers=headers, content=payload)
@@ -172,7 +172,10 @@ def place_order_api(data, auth_token):
         # Add status attribute for compatibility with the existing codebase
         response.status = response.status_code
 
+        logger.info(f"PLACE ORDER API - Response status: {response.status_code} from {url}")
+
         response_data = json.loads(response.text)
+        logger.info(f"PLACE ORDER API - Response data: {response_data}")
 
         orderid = response_data["nOrdNo"] if response_data["stat"] == "Ok" else None
         return response, response_data, orderid
@@ -336,7 +339,7 @@ def close_all_positions(current_api_key, auth_token):
 
 
 def cancel_order(orderid, auth_token):
-    session_token, session_sid, base_url, access_token = auth_token.split(":::")
+    session_token, session_sid, base_url, bearer_token, server_id = auth_token.split(":::")
 
     # Get the shared httpx client with connection pooling
     client = get_httpx_client()
@@ -345,15 +348,15 @@ def cancel_order(orderid, auth_token):
 
     headers = {
         "accept": "application/json",
-        "Authorization": access_token,
+        "Authorization": f"Bearer {bearer_token}",
         "Sid": session_sid,
         "Auth": session_token,
         "neo-fin-key": "neotradeapi",
         "Content-Type": "application/x-www-form-urlencoded",
     }
 
-    # Construct full URL
-    url = f"{base_url}/quick/order/cancel"
+    # Construct full URL with sId query parameter
+    url = f"{base_url}/quick/order/cancel?sId={server_id}"
 
     try:
         response = client.post(url, headers=headers, content=payload)
@@ -374,7 +377,7 @@ def cancel_order(orderid, auth_token):
 
 
 def modify_order(data, auth_token):
-    session_token, session_sid, base_url, access_token = auth_token.split(":::")
+    session_token, session_sid, base_url, bearer_token, server_id = auth_token.split(":::")
 
     # Debug logging for baseUrl
     logger.info(f"MODIFY ORDER API - Using baseUrl: {base_url}")
@@ -391,15 +394,15 @@ def modify_order(data, auth_token):
 
     headers = {
         "accept": "application/json",
-        "Authorization": access_token,
+        "Authorization": f"Bearer {bearer_token}",
         "Sid": session_sid,
         "Auth": session_token,
         "neo-fin-key": "neotradeapi",
         "Content-Type": "application/x-www-form-urlencoded",
     }
 
-    # Construct full URL
-    url = f"{base_url}/quick/order/vr/modify"
+    # Construct full URL with sId query parameter
+    url = f"{base_url}/quick/order/vr/modify?sId={server_id}"
 
     logger.info(f"MODIFY ORDER - Making POST request to: {url}")
 
